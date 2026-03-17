@@ -1,0 +1,33 @@
+{
+  "name": "circle-sample",
+  "version": "1.0.0",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "setup": "tsx src/setup.ts",
+    "server": "tsx src/server.ts",
+    "client": "tsx src/client.ts",
+    "facilitator": "tsx src/facilitator.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "viem": "^2.47.4",
+    "x402": "^1.1.0",
+    "x402-express": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "type": "module"
+}
