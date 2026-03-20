@@ -10,18 +10,21 @@
     "setup": "tsx src/setup.ts",
     "server": "tsx src/server.ts",
     "client": "tsx src/client.ts",
-    "facilitator": "tsx src/facilitator.ts"
+    "deposit": "tsx src/deposit.ts",
+    "balance": "tsx src/balance.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@circle-fin/x402-batching": "^2.0.4",
+    "@x402/core": "^2.7.0",
+    "@x402/evm": "^2.7.0",
+    "@x402/express": "^2.7.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "viem": "^2.47.4",
-    "x402": "^1.1.0",
-    "x402-express": "^1.1.0"
+    "viem": "^2.47.4"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

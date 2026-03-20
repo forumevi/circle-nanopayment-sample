@@ -1,29 +1,30 @@
-# Circle Arc Testnet — x402 Autonomous Payment Sample
+# Circle Arc Testnet — x402 Nanopayment Sample
 
-A minimal end-to-end proof-of-concept showing how an AI agent can autonomously pay for API access using the [x402 protocol](https://x402.org), [Circle USDC](https://www.circle.com/usdc), and Circle's **Arc testnet** (Circle's own EVM-compatible L1).
+A minimal end-to-end proof-of-concept showing how an AI agent can autonomously pay for API access using [Circle Gateway nanopayments](https://developers.circle.com/gateway/nanopayments), the [x402 protocol](https://x402.org), and Circle's **Arc testnet**.
 
 ## What This Demonstrates
 
 ```
-Client (AI agent)                Server (paid API)           Facilitator (local)
-─────────────────                ─────────────────           ───────────────────
+Client (AI agent)                Server (paid API)           Circle Gateway
+─────────────────                ─────────────────           ──────────────
 GET /risk-profile   ──────────►  402 Payment Required
-                    ◄──────────  { accepts: [{ network: "arc-testnet", price: "$0.01" }] }
+                    ◄──────────  PAYMENT-REQUIRED header (GatewayWalletBatched)
 
-sign EIP-3009
-TransferWithAuthorization
+sign EIP-3009 against
+GatewayWallet contract
 
-GET /risk-profile   ──────────►  decode X-PAYMENT header
-  X-PAYMENT: <sig>               POST /verify  ────────────► isValid: true
-                                 POST /settle  ────────────► tx on Arc chain ✅
+GET /risk-profile   ──────────►  decode Payment-Signature
+  Payment-Signature: <sig>       verify  ───────────────► isValid: true
+                                 settle  ───────────────► batched settlement ✅
                     ◄──────────  200 { risk_score: 87, ... }
 ```
 
 **Key facts:**
-- No Circle API key required — uses local private keys
-- Payment signed client-side with [viem](https://viem.sh) EIP-712 / EIP-3009
-- Local facilitator handles verify + on-chain USDC settlement
-- $0.01 USDC transferred per API call, settled on Arc testnet
+- **Gas-free** — nanopayments are batched by Circle Gateway, no per-transaction gas
+- **No local facilitator** — Circle Gateway handles verification & settlement
+- **No Circle API key** — uses local private keys + Gateway's public endpoints
+- **x402 v2 protocol** — uses `PAYMENT-REQUIRED` / `Payment-Signature` headers
+- $0.01 USDC per API call, settled in batches on Arc testnet
 
 ---
 
@@ -47,19 +48,7 @@ GET /risk-profile   ──────────►  decode X-PAYMENT header
 npm install
 ```
 
-### 2. Patch x402 for Arc testnet
-
-The `x402` package (v1.1.0) doesn't include Arc testnet in its built-in network list. Apply the patch:
-
-```bash
-node patch-x402.mjs
-```
-
-This adds `arc-testnet` (chain ID 5042002) to the `SupportedEVMNetworks`, `EvmNetworkToChainId`, and USDC config in all x402 dist files (both ESM and CJS).
-
-> **Note:** Re-run this after `npm install` since it modifies `node_modules`.
-
-### 3. Generate keys
+### 2. Generate keys
 
 ```bash
 npm run setup
@@ -73,20 +62,25 @@ SERVER_PRIVATE_KEY=0x...
 SERVER_ADDRESS=0x...
 ```
 
-### 4. Fund wallets
+### 3. Fund wallets
 
-Go to **https://faucet.circle.com**, select **Arc Testnet** + **USDC**, and fund both the client and server addresses printed by `npm run setup`.
+Go to **https://faucet.circle.com**, select **Arc Testnet** + **USDC**, and fund the **client** address printed by `npm run setup`.
 
-### 5. Run (3 terminals)
+### 4. Deposit USDC into Gateway
+
+The client needs USDC in Circle Gateway to make nanopayments:
 
 ```bash
-# Terminal 1 — payment facilitator (verify + settle on Arc chain)
-npm run facilitator
+npm run deposit -- 1     # deposits 1 USDC into Gateway
+```
 
-# Terminal 2 — paywalled API server
+### 5. Run (2 terminals)
+
+```bash
+# Terminal 1 — paywalled API server
 npm run server
 
-# Terminal 3 — AI agent client
+# Terminal 2 — AI agent client
 npm run client
 ```
 
@@ -94,14 +88,17 @@ npm run client
 
 ```
 Wallet: 0xF8eBf...
+
+Wallet USDC: 18.97
+Gateway available: 1
+Gateway total: 1
+
 Calling http://localhost:4021/risk-profile ...
 
-Got 402. Payment required: { scheme: "exact", network: "arc-testnet", ... }
-
-Payment payload network: arc-testnet
-Payment signed. Retrying with X-PAYMENT header...
-
-✅ Payment complete! Response:
+✅ Nanopayment complete!
+Paid: 0.01 USDC
+Transaction: 76de04b4-d6da-42c3-8462-785ead8dc8f7
+Response:
 {
   "risk_score": 87,
   "risk_level": "high",
@@ -109,53 +106,67 @@ Payment signed. Retrying with X-PAYMENT header...
 }
 ```
 
-**Expected output (facilitator):**
+### 6. Check seller earnings
 
+```bash
+npm run balance            # view seller's Gateway balance
+npm run balance 0.5        # withdraw 0.5 USDC from Gateway
 ```
-[FACILITATOR] verify called, network: arc-testnet
-[FACILITATOR] verify result: {"isValid":true,"payer":"0x..."}
-[FACILITATOR] settle called, network: arc-testnet
-[FACILITATOR] settle result: {"success":true,"transaction":"0x...","network":"arc-testnet"}
-```
+
+> **Note:** Seller earnings appear after Circle Gateway settles the batch on-chain. This may take a few minutes.
 
 ---
 
 ## Architecture
 
 ### `src/server.ts` — Paywalled API
-Express server on port 4021. Uses `x402-express` middleware to gate `GET /risk-profile` behind a $0.01 USDC payment requirement. Points to the local facilitator at `http://localhost:4022`.
-
-### `src/facilitator.ts` — Local x402 Facilitator
-Express server on port 4022. Implements the x402 facilitator protocol (`/verify`, `/settle`, `/supported`) using viem clients connected to Arc testnet. The wallet client is extended with `publicActions` (required for EIP-712 signature verification during settlement).
+Express server on port 4021. Uses `@x402/express` middleware with `BatchFacilitatorClient` (Circle Gateway) and `GatewayEvmScheme` to gate `GET /risk-profile` behind a $0.01 USDC nanopayment. No local facilitator needed.
 
 ### `src/client.ts` — Autonomous Payment Client
-Simulates an AI agent that:
-1. Calls the API → receives 402 with payment requirements
-2. Signs an EIP-3009 `TransferWithAuthorization` using its Arc testnet wallet
-3. Retries the request with the `X-PAYMENT` header
+Uses `GatewayClient` from `@circle-fin/x402-batching` to:
+1. Check Gateway balance (deposit required first)
+2. Call the API → `GatewayClient.pay()` handles the full 402 flow automatically
+3. Signs EIP-3009 against the GatewayWallet contract (not USDC directly)
 4. Receives the paid response
+
+### `src/deposit.ts` — Gateway Deposit
+Deposits USDC from the client's wallet into Circle Gateway. Required before making nanopayments.
+
+### `src/balance.ts` — Seller Balance & Withdrawal
+Checks the seller's Gateway balance and optionally withdraws earnings.
 
 ### `src/setup.ts` — Key Generator
 Generates client and server private keys and prints the addresses to fund.
 
 ---
 
-## x402 Protocol Flow
+## x402 Nanopayment Flow
 
-The [x402 protocol](https://github.com/coinbase/x402) is a standard for HTTP micropayments:
+The [x402 protocol](https://github.com/coinbase/x402) with [Circle Gateway nanopayments](https://developers.circle.com/gateway/nanopayments):
 
-1. **402 Response** — server returns payment requirements (scheme, network, amount, payTo address, asset)
-2. **Client signs** — EIP-3009 `TransferWithAuthorization` permits the server to pull USDC without a prior `approve` transaction
-3. **X-PAYMENT header** — base64-encoded signed authorization sent with the retry request
-4. **Facilitator verifies** — checks signature validity, amounts, expiry
-5. **Facilitator settles** — submits `transferWithAuthorization` to the USDC contract on Arc, transferring funds
-6. **Server responds** — returns the actual API response with `X-PAYMENT-RESPONSE` header
+1. **Client deposits** — one-time: USDC is deposited into the GatewayWallet contract
+2. **402 Response** — server returns `PAYMENT-REQUIRED` header with `GatewayWalletBatched` scheme and the GatewayWallet `verifyingContract`
+3. **Client signs** — EIP-3009 `TransferWithAuthorization` against the GatewayWallet contract (not the USDC token)
+4. **Payment-Signature header** — signed authorization sent with the retry request
+5. **Gateway verifies** — Circle Gateway checks signature validity
+6. **Gateway settles** — payment is queued for batched on-chain settlement (gas-free for both parties)
+7. **Server responds** — returns the API response immediately
+
+### Why Nanopayments?
+
+| | Standard x402 | Nanopayments |
+|--|-------------|-------------|
+| Settlement | Per-request on-chain tx | Batched by Gateway |
+| Gas cost | Paid per transaction | Zero (Gateway absorbs) |
+| Facilitator | Self-hosted required | Circle Gateway (hosted) |
+| Latency | Depends on chain | Near-instant |
+| Setup | 3 processes | 1 server process |
 
 ---
 
 ## Why Arc Testnet?
 
-Arc is Circle's own EVM-compatible L1 where USDC is the native gas token, making it ideal for demonstrating USDC micropayments with minimal friction. The `x402` library v1.1.0 doesn't include Arc in its built-in network list — this sample includes a patch script to add it.
+Arc is Circle's own EVM-compatible L1 where USDC is the native gas token, making it ideal for demonstrating USDC micropayments with minimal friction.
 
 ---
 
@@ -166,10 +177,20 @@ circle-sample/
 ├── src/
 │   ├── setup.ts         # Generate keypairs
 │   ├── server.ts        # Paywalled API (port 4021)
-│   ├── facilitator.ts   # x402 facilitator (port 4022)
-│   └── client.ts        # Autonomous payment client
-├── patch-x402.mjs       # Adds arc-testnet to x402 node_modules
+│   ├── client.ts        # Autonomous nanopayment client
+│   ├── deposit.ts       # Deposit USDC into Gateway
+│   └── balance.ts       # Check seller balance / withdraw
 ├── .env.example
 ├── package.json
 └── tsconfig.json
 ```
+
+## npm Scripts
+
+| Script | Description |
+|--------|------------|
+| `npm run setup` | Generate keypairs and print addresses |
+| `npm run server` | Start the paywalled API server |
+| `npm run client` | Run the autonomous payment client |
+| `npm run deposit -- <amt>` | Deposit USDC into Gateway for nanopayments |
+| `npm run balance [amt]` | Check seller balance / withdraw |
