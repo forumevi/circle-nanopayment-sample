@@ -120,7 +120,7 @@ npm run balance 0.5        # withdraw 0.5 USDC from Gateway
 ## Architecture
 
 ### `src/server.ts` — Paywalled API
-Express server on port 4021. Uses `@x402/express` middleware with `BatchFacilitatorClient` (Circle Gateway) and `GatewayEvmScheme` to gate `GET /risk-profile` behind a $0.01 USDC nanopayment. No local facilitator needed.
+Express server on port 4021. Uses `createGatewayMiddleware` from `@circle-fin/x402-batching` to gate `GET /risk-profile` behind a $0.01 USDC nanopayment. No local facilitator needed — Circle Gateway handles verification and settlement.
 
 ### `src/client.ts` — Autonomous Payment Client
 Uses `GatewayClient` from `@circle-fin/x402-batching` to:

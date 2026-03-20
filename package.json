@@ -19,9 +19,6 @@
   "description": "",
   "dependencies": {
     "@circle-fin/x402-batching": "^2.0.4",
-    "@x402/core": "^2.7.0",
-    "@x402/evm": "^2.7.0",
-    "@x402/express": "^2.7.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "viem": "^2.47.4"
